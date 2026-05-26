@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>月曆拼圖｜手機正確版</title>
+<style>
+  *{box-sizing:border-box}
+  body{
+    margin:0;
+    font-family:"Noto Sans TC","Microsoft JhengHei",system-ui,sans-serif;
+    background:#f7f1ea;
+    color:#222;
+    overflow:hidden;
+  }
+  header{
+    min-height:84px;
+    padding:8px 10px;
+    background:white;
+    border-bottom:1px solid #ddd;
+    box-shadow:0 2px 8px rgba(0,0,0,.08);
+    display:flex;
+    flex-wrap:wrap;
+    align-items:center;
+    gap:8px;
+    position:relative;
+    z-index:5;
+  }
+  h1{font-size:19px;margin:0 8px 0 0;white-space:nowrap}
+  .tools{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+  button,select{
+    border:1px solid #bbb;
+    background:white;
+    border-radius:10px;
+    padding:7px 9px;
+    font-size:14px;
+  }
+  button:active{transform:scale(.98)}
+  #message{
+    padding:7px 10px;
+    border-radius:10px;
+    background:#f4eadf;
+    color:#704111;
+    font-weight:700;
+    font-size:14px;
+  }
+  #stageWrap{
+    width:100vw;
+    height:calc(100vh - 84px);
+    overflow:hidden;
+    background:#fff8f0;
+  }
+  svg{
+    width:100%;
+    height:100%;
+    display:block;
+    touch-action:none;
+    background:#fff8f0;
+  }
+  .cell{
+    fill:#eee8e2;
+    stroke:#111;
+    stroke-width:2;
+  }
+  .target{
+    fill:#fff2a8;
+    stroke:#ffb800;
+    stroke-width:5;
+  }
+  .cellText{
+    font-size:25px;
+    font-weight:700;
+    text-anchor:middle;
+    dominant-baseline:middle;
+    pointer-events:none;
+    fill:#222;
+  }
+  .monthText{font-size:21px}
+  .piece rect{
+    stroke:#111;
+    stroke-width:2;
+  }
+  .piece{
+    cursor:grab;
+    filter:drop-shadow(0 5px 4px rgba(0,0,0,.25));
+  }
+  .piece.locked{
+    opacity:.86;
+    cursor:not-allowed;
+  }
+  .piece.selected rect{
+    stroke-width:4;
+  }
+  #qrPanel{
+    position:fixed;
+    left:12px;
+    right:12px;
+    top:96px;
+    background:white;
+    border:1px solid #ddd;
+    border-radius:16px;
+    box-shadow:0 10px 28px rgba(0,0,0,.22);
+    padding:12px;
+    z-index:20;
+    display:none;
+  }
+  #qrPanel img{
+    width:220px;
+    height:220px;
+    display:block;
+    margin:8px auto;
+    border:1px solid #eee;
+  }
+  #studentLink{
+    width:100%;
+    height:58px;
+    border:1px solid #ddd;
+    border-radius:10px;
+    padding:8px;
+    font-size:12px;
+  }
+  body.student .teacherOnly{display:none}
+  @media(max-width:700px){
+    header{min-height:126px;align-items:flex-start}
+    h1{font-size:17px;width:100%}
+    #stageWrap{height:calc(100vh - 126px)}
+    button,select{font-size:13px;padding:6px 8px}
+    #message{font-size:13px}
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>「拼」然心動｜月曆拼圖手機正確版</h1>
+  <div class="tools">
+    <label>月份 <select id="monthSelect"></select></label>
+    <label>日期 <select id="daySelect"></select></label>
+    <button id="check">檢查</button>
+    <button id="scaffold" class="teacherOnly">老師預放四塊</button>
+    <button id="makeQR" class="teacherOnly">產生學生 QR</button>
+    <button id="lockSelected" class="teacherOnly">鎖定/解鎖選取</button>
+    <button id="rotL">左轉</button>
+    <button id="rotR">右轉</button>
+    <button id="flip">翻面</button>
+    <button id="reset">重排</button>
+    <span id="message">請選日期開始挑戰</span>
+  </div>
+</header>
+
+<div id="stageWrap">
+<svg id="svg" viewBox="0 0 1080 760" preserveAspectRatio="xMinYMin meet">
+  <rect x="16" y="16" width="510" height="510" rx="22" fill="#7b3608"/>
+  <g id="board"></g>
+  <g id="piecesLayer"></g>
+  <text x="560" y="700" font-size="18" fill="#8b5a35">拖曳拼塊到左側月曆。手機、平板、電腦皆使用同一套座標，不會縮放錯位。</text>
+</svg>
+</div>
+
+<div id="qrPanel">
+  <button id="closeQR" style="float:right">關閉</button>
+  <h3 style="margin:0 0 6px">學生挑戰 QR Code</h3>
+  <p style="font-size:14px;line-height:1.5;margin:6px 0">學生掃描後，會看到老師預放並鎖定的拼塊，接著完成剩下拼圖。</p>
+  <img id="qrImg" alt="QR Code">
+  <textarea id="studentLink" readonly></textarea>
+  <button id="copyLink" style="width:100%;margin-top:8px">複製學生連結</button>
+</div>
+
+<script>
+const CELL = 54;
+const BOARD_X = 70;
+const BOARD_Y = 70;
+const svg = document.getElementById("svg");
+const boardG = document.getElementById("board");
+const piecesLayer = document.getElementById("piecesLayer");
+const msg = document.getElementById("message");
+const monthSelect = document.getElementById("monthSelect");
+const daySelect = document.getElementById("daySelect");
+
+let selected = null;
+let dragging = null;
+let studentInitialSetup = null;
+let zCounter = 1;
+
+const boardCells = [
+  ["1月","2月","3月","4月","5月","6月"],
+  ["7月","8月","9月","10月","11月","12月"],
+  ["1","2","3","4","5","6","7"],
+  ["8","9","10","11","12","13","14"],
+  ["15","16","17","18","19","20","21"],
+  ["22","23","24","25","26","27","28"],
+  ["29","30","31"]
+];
+
+const pieces = [
+  {color:"#f2f2f2", cells:[[0,0],[0,1],[0,2],[1,2],[2,2]]},
+  {color:"#5d5d5d", cells:[[1,0],[2,0],[3,0],[0,1],[1,1]]},
+  {color:"#e51b2b", cells:[[1,0],[2,0],[1,1],[0,2],[1,2]]},
+  {color:"#a63a98", cells:[[0,0],[1,0],[0,1],[1,1],[2,1]]},
+  {color:"#ffd800", cells:[[1,0],[0,1],[1,1],[2,1],[3,1]]},
+  {color:"#0b9560", cells:[[0,0],[1,0],[2,0],[0,1],[1,1],[2,1]]},
+  {color:"#f2672e", cells:[[0,0],[2,0],[0,1],[1,1],[2,1]]},
+  {color:"#1698c9", cells:[[3,0],[0,1],[1,1],[2,1],[3,1]]}
+];
+
+function svgPoint(evt){
+  const pt = svg.createSVGPoint();
+  pt.x = evt.clientX;
+  pt.y = evt.clientY;
+  return pt.matrixTransform(svg.getScreenCTM().inverse());
+}
+function createSVG(tag, attrs={}){
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for(const [k,v] of Object.entries(attrs)) el.setAttribute(k,v);
+  return el;
+}
+function bounds(cells){
+  const xs=cells.map(c=>c[0]), ys=cells.map(c=>c[1]);
+  return {minX:Math.min(...xs), maxX:Math.max(...xs), minY:Math.min(...ys), maxY:Math.max(...ys)};
+}
+function transformed(piece){
+  let cells = piece.base.map(([x,y])=>[piece.flipX ? -x : x, y]);
+  const turns = (((piece.rot%360)+360)%360)/90;
+  for(let i=0;i<turns;i++) cells = cells.map(([x,y])=>[y,-x]);
+  const b = bounds(cells);
+  return cells.map(([x,y])=>[x-b.minX,y-b.minY]);
+}
+function setPieceTransform(g){
+  g.setAttribute("transform",`translate(${g._piece.x},${g._piece.y})`);
+}
+function drawBoard(){
+  boardG.innerHTML = "";
+  boardCells.forEach((row,r)=>{
+    row.forEach((txt,c)=>{
+      const group = createSVG("g", {"data-key":txt, "data-r":r, "data-c":c});
+      const rect = createSVG("rect", {
+        x: BOARD_X + c*CELL, y: BOARD_Y + r*CELL,
+        width:CELL, height:CELL, class:"cell"
+      });
+      const text = createSVG("text", {
+        x: BOARD_X + c*CELL + CELL/2,
+        y: BOARD_Y + r*CELL + CELL/2 + 1,
+        class:"cellText " + (txt.includes("月") ? "monthText" : "")
+      });
+      text.textContent = txt;
+      group.append(rect,text);
+      boardG.appendChild(group);
+    });
+  });
+  highlightTarget();
+}
+function highlightTarget(){
+  boardG.querySelectorAll("rect").forEach(r=>r.setAttribute("class","cell"));
+  boardG.querySelectorAll("g").forEach(g=>{
+    const key = g.dataset.key;
+    if(key === monthSelect.value || key === daySelect.value){
+      g.querySelector("rect").setAttribute("class","cell target");
+    }
+  });
+  msg.textContent = `挑戰：留下 ${monthSelect.value} ${daySelect.value}日`;
+}
+function startPos(i){
+  const col = i % 2;
+  const row = Math.floor(i/2);
+  return {x:560 + col*245, y:60 + row*125};
+}
+function drawPiece(g){
+  g.innerHTML = "";
+  const cells = transformed(g._piece);
+  cells.forEach(([x,y])=>{
+    g.appendChild(createSVG("rect",{
+      x:x*CELL, y:y*CELL, width:CELL, height:CELL,
+      fill:g._piece.color
+    }));
+  });
+  setPieceTransform(g);
+}
+function makePiece(p,i){
+  const g = createSVG("g",{class:"piece","data-index":i});
+  const pos = startPos(i);
+  g._piece = {base:p.cells, color:p.color, rot:0, flipX:false, locked:false, x:pos.x, y:pos.y};
+  drawPiece(g);
+  piecesLayer.appendChild(g);
+  g.addEventListener("pointerdown", pointerDown);
+}
+function setSelected(g){
+  piecesLayer.querySelectorAll(".piece").forEach(p=>p.classList.remove("selected"));
+  selected = g;
+  if(g) g.classList.add("selected");
+}
+function pointerDown(evt){
+  const g = evt.currentTarget;
+  setSelected(g);
+  if(g._piece.locked){
+    msg.textContent = "這片是老師預放並鎖定的拼塊，請移動其他拼塊。";
+    return;
+  }
+  g.parentNode.appendChild(g);
+  const p = svgPoint(evt);
+  dragging = {g, dx:p.x - g._piece.x, dy:p.y - g._piece.y};
+  g.setPointerCapture(evt.pointerId);
+}
+svg.addEventListener("pointermove",evt=>{
+  if(!dragging) return;
+  const p = svgPoint(evt);
+  dragging.g._piece.x = p.x - dragging.dx;
+  dragging.g._piece.y = p.y - dragging.dy;
+  setPieceTransform(dragging.g);
+});
+svg.addEventListener("pointerup",()=>{
+  if(!dragging) return;
+  snapToGrid(dragging.g);
+  dragging = null;
+});
+svg.addEventListener("pointercancel",()=>{
+  if(!dragging) return;
+  snapToGrid(dragging.g);
+  dragging = null;
+});
+function snapToGrid(g){
+  const x = g._piece.x;
+  const y = g._piece.y;
+  const nearBoard = x > BOARD_X - CELL*1.5 && x < BOARD_X + CELL*7 + CELL*1.5 &&
+                    y > BOARD_Y - CELL*1.5 && y < BOARD_Y + CELL*7 + CELL*1.5;
+  if(nearBoard){
+    const c = Math.round((x - BOARD_X)/CELL);
+    const r = Math.round((y - BOARD_Y)/CELL);
+    g._piece.x = BOARD_X + c*CELL;
+    g._piece.y = BOARD_Y + r*CELL;
+  }else{
+    g._piece.x = Math.round(x/CELL)*CELL;
+    g._piece.y = Math.round(y/CELL)*CELL;
+  }
+  setPieceTransform(g);
+}
+function rotateSelected(deg){
+  if(!selected || selected._piece.locked) return;
+  selected._piece.rot = (selected._piece.rot + deg + 360) % 360;
+  drawPiece(selected);
+  snapToGrid(selected);
+}
+function flipSelected(){
+  if(!selected || selected._piece.locked) return;
+  selected._piece.flipX = !selected._piece.flipX;
+  drawPiece(selected);
+  snapToGrid(selected);
+}
+function resetPieces(){
+  piecesLayer.innerHTML = "";
+  selected = null;
+  pieces.forEach(makePiece);
+  highlightTarget();
+}
+function gridPos(g){
+  return {
+    c: Math.round((g._piece.x - BOARD_X)/CELL),
+    r: Math.round((g._piece.y - BOARD_Y)/CELL),
+    offC: Math.abs((g._piece.x - BOARD_X)/CELL - Math.round((g._piece.x - BOARD_X)/CELL)),
+    offR: Math.abs((g._piece.y - BOARD_Y)/CELL - Math.round((g._piece.y - BOARD_Y)/CELL))
+  };
+}
+function checkAnswer(){
+  const occupied = new Map();
+  let outside=0, overlap=0, notOnGrid=0;
+  piecesLayer.querySelectorAll(".piece").forEach((g,pi)=>{
+    const gp = gridPos(g);
+    if(gp.offC>.01 || gp.offR>.01) notOnGrid++;
+    transformed(g._piece).forEach(([x,y])=>{
+      const c=gp.c+x, r=gp.r+y, key=`${r},${c}`;
+      if(!boardCells[r] || boardCells[r][c] === undefined) outside++;
+      else if(occupied.has(key)) overlap++;
+      else occupied.set(key,pi);
+    });
+  });
+  const covered=[], missing=[];
+  boardCells.forEach((row,r)=>row.forEach((txt,c)=>{
+    const isTarget = txt===monthSelect.value || txt===daySelect.value;
+    const isOcc = occupied.has(`${r},${c}`);
+    if(isTarget && isOcc) covered.push(txt);
+    if(!isTarget && !isOcc) missing.push(txt);
+  }));
+  if(!outside && !overlap && !notOnGrid && !covered.length && !missing.length){
+    msg.textContent = `成功！${monthSelect.value} ${daySelect.value}日完成。`;
+    msg.style.background="#dff5df"; msg.style.color="#136b22";
+  }else{
+    const tips=[];
+    if(notOnGrid) tips.push("有拼塊未對齊格線");
+    if(outside) tips.push("有方塊跑出底板");
+    if(overlap) tips.push("有方塊重疊");
+    if(covered.length) tips.push(`目標被蓋住：${covered.join("、")}`);
+    if(missing.length) tips.push(`尚未填滿：${missing.slice(0,6).join("、")}${missing.length>6?"……":""}`);
+    msg.textContent = "再試試：" + tips.join("；");
+    msg.style.background="#ffe4e1"; msg.style.color="#9a1f12";
+  }
+}
+function allOrientations(base,index){
+  const seen=new Set(), outs=[];
+  for(const flipX of [false,true]){
+    for(const rot of [0,90,180,270]){
+      let cells=base.map(([x,y])=>[flipX?-x:x,y]);
+      for(let i=0;i<rot/90;i++) cells=cells.map(([x,y])=>[y,-x]);
+      const b=bounds(cells);
+      cells=cells.map(([x,y])=>[x-b.minX,y-b.minY]).sort((a,b)=>a[1]-b[1]||a[0]-b[0]);
+      const key=JSON.stringify(cells);
+      if(!seen.has(key)){seen.add(key);outs.push({index,cells,rot,flipX});}
+    }
+  }
+  return outs;
+}
+function solveCurrentDate(){
+  const blocked = new Set();
+  boardCells.forEach((row,r)=>row.forEach((txt,c)=>{
+    if(txt === monthSelect.value || txt === daySelect.value) blocked.add(`${r},${c}`);
+  }));
+  const placementsByPiece = pieces.map((p,idx)=>{
+    const list=[];
+    for(const o of allOrientations(p.cells,idx)){
+      const b=bounds(o.cells);
+      for(let r=0;r<=6-b.maxY;r++){
+        for(let c=0;c<=6-b.maxX;c++){
+          const cells=o.cells.map(([x,y])=>[r+y,c+x]);
+          if(cells.every(([rr,cc])=>boardCells[rr] && boardCells[rr][cc]!==undefined && !blocked.has(`${rr},${cc}`))){
+            list.push({...o,r,c,keys:cells.map(([rr,cc])=>`${rr},${cc}`)});
+          }
+        }
+      }
+    }
+    return list;
+  });
+  function backtrack(used,chosen){
+    if(chosen.length === pieces.length) return chosen;
+    let bestOptions=null;
+    for(let p=0;p<pieces.length;p++){
+      if(chosen.some(x=>x.index===p)) continue;
+      const options=placementsByPiece[p].filter(pl=>pl.keys.every(k=>!used.has(k)));
+      if(bestOptions===null || options.length<bestOptions.length) bestOptions=options;
+    }
+    if(!bestOptions || !bestOptions.length) return null;
+    bestOptions.sort((a,b)=>(a.r+a.c)-(b.r+b.c));
+    for(const pl of bestOptions){
+      pl.keys.forEach(k=>used.add(k));
+      const ans=backtrack(used,chosen.concat(pl));
+      if(ans) return ans;
+      pl.keys.forEach(k=>used.delete(k));
+    }
+    return null;
+  }
+  return backtrack(new Set(),[]);
+}
+function placeAtGrid(g,c,r){
+  g._piece.x = BOARD_X + c*CELL;
+  g._piece.y = BOARD_Y + r*CELL;
+  setPieceTransform(g);
+}
+function scaffoldFour(){
+  resetPieces();
+  const sol = solveCurrentDate();
+  if(!sol){
+    msg.textContent = "這個日期暫時找不到預放解，請換一個日期。";
+    return;
+  }
+  const scaffold = [...sol].sort((a,b)=>(a.r+a.c)-(b.r+b.c)).slice(0,4);
+  scaffold.forEach(pl=>{
+    const g = piecesLayer.querySelector(`.piece[data-index="${pl.index}"]`);
+    g._piece.rot = pl.rot;
+    g._piece.flipX = pl.flipX;
+    g._piece.locked = true;
+    drawPiece(g);
+    g.classList.add("locked");
+    placeAtGrid(g,pl.c,pl.r);
+  });
+  let slot=0;
+  sol.filter(pl=>!scaffold.some(s=>s.index===pl.index)).forEach(pl=>{
+    const g = piecesLayer.querySelector(`.piece[data-index="${pl.index}"]`);
+    const pos = startPos(slot++);
+    g._piece.rot=0; g._piece.flipX=false; g._piece.locked=false;
+    g._piece.x=pos.x; g._piece.y=pos.y;
+    drawPiece(g);
+    g.classList.remove("locked");
+  });
+  msg.textContent = `已為 ${monthSelect.value} ${daySelect.value}日預放四塊，學生可完成剩下四塊。`;
+  msg.style.background="#dff5df"; msg.style.color="#136b22";
+}
+function currentSetup(){
+  return {
+    month:monthSelect.value,
+    day:daySelect.value,
+    pieces:[...piecesLayer.querySelectorAll(".piece")].map(g=>{
+      const gp = gridPos(g);
+      return {
+        index:Number(g.dataset.index),
+        x:gp.c,
+        y:gp.r,
+        freeX:g._piece.x,
+        freeY:g._piece.y,
+        rot:g._piece.rot,
+        flipX:g._piece.flipX,
+        locked:g._piece.locked
+      };
+    })
+  };
+}
+function applySetup(setup){
+  monthSelect.value = setup.month || "1月";
+  daySelect.value = setup.day || "1";
+  highlightTarget();
+  setup.pieces.forEach(s=>{
+    const g = piecesLayer.querySelector(`.piece[data-index="${s.index}"]`);
+    if(!g) return;
+    g._piece.rot=s.rot||0;
+    g._piece.flipX=!!s.flipX;
+    g._piece.locked=!!s.locked;
+    drawPiece(g);
+    g.classList.toggle("locked",g._piece.locked);
+    if(g._piece.locked){
+      placeAtGrid(g,s.x,s.y);
+    }else{
+      g._piece.x = typeof s.freeX==="number" ? s.freeX : startPos(s.index).x;
+      g._piece.y = typeof s.freeY==="number" ? s.freeY : startPos(s.index).y;
+      setPieceTransform(g);
+    }
+  });
+}
+function encodeSetup(setup){return btoa(unescape(encodeURIComponent(JSON.stringify(setup))));}
+function decodeSetup(code){return JSON.parse(decodeURIComponent(escape(atob(code))));}
+function makeStudentURL(){
+  const setup = currentSetup();
+  studentInitialSetup = JSON.parse(JSON.stringify(setup));
+  return location.origin + location.pathname + "#challenge=" + encodeSetup(setup);
+}
+function showQR(){
+  // 只產生「目前畫面」的學生挑戰 QR，不自動預放任何拼塊。
+  // 老師想先放幾塊、鎖幾塊，都由目前畫面決定。
+  const url = makeStudentURL();
+  document.getElementById("studentLink").value = url;
+  document.getElementById("qrImg").src = "https://api.qrserver.com/v1/create-qr-code/?size=220x220&data=" + encodeURIComponent(url);
+  document.getElementById("qrPanel").style.display = "block";
+  msg.textContent = "已依照目前畫面產生學生 QR Code；不會自動預放拼塊。";
+  msg.style.background="#dff5df";
+  msg.style.color="#136b22";
+}
+function loadChallenge(){
+  if(!location.hash.startsWith("#challenge=")) return;
+  try{
+    const setup = decodeSetup(location.hash.replace("#challenge=",""));
+    studentInitialSetup = JSON.parse(JSON.stringify(setup));
+    applySetup(setup);
+    document.body.classList.add("student");
+    msg.textContent = `學生挑戰：請完成 ${monthSelect.value} ${daySelect.value}日。`;
+    msg.style.background="#dff5df"; msg.style.color="#136b22";
+  }catch(e){
+    msg.textContent = "挑戰連結讀取失敗，請老師重新產生 QR Code。";
+  }
+}
+
+function toggleLockSelected(){
+  if(!selected){
+    msg.textContent = "請先點選一片拼塊。";
+    return;
+  }
+  selected._piece.locked = !selected._piece.locked;
+  selected.classList.toggle("locked", selected._piece.locked);
+  msg.textContent = selected._piece.locked ? "已鎖定這片拼塊，學生不能移動它。" : "已解鎖這片拼塊。";
+  msg.style.background="#f4eadf";
+  msg.style.color="#704111";
+}
+
+function resetCurrent(){
+  if(document.body.classList.contains("student") && studentInitialSetup){
+    resetPieces();
+    applySetup(studentInitialSetup);
+    msg.textContent = "已回到老師 QR Code 一開始預設的挑戰狀態。";
+  }else{
+    resetPieces();
+  }
+}
+
+for(let m=1;m<=12;m++){
+  const op=document.createElement("option");
+  op.value=m+"月"; op.textContent=m+"月";
+  monthSelect.appendChild(op);
+}
+for(let d=1;d<=31;d++){
+  const op=document.createElement("option");
+  op.value=String(d); op.textContent=d+"日";
+  daySelect.appendChild(op);
+}
+monthSelect.value="1月";
+daySelect.value="1";
+monthSelect.onchange=highlightTarget;
+daySelect.onchange=highlightTarget;
+
+document.getElementById("check").onclick=checkAnswer;
+document.getElementById("scaffold").onclick=scaffoldFour;
+document.getElementById("makeQR").onclick=showQR;
+document.getElementById("lockSelected").onclick=toggleLockSelected;
+document.getElementById("rotL").onclick=()=>rotateSelected(-90);
+document.getElementById("rotR").onclick=()=>rotateSelected(90);
+document.getElementById("flip").onclick=flipSelected;
+document.getElementById("reset").onclick=resetCurrent;
+document.getElementById("closeQR").onclick=()=>document.getElementById("qrPanel").style.display="none";
+document.getElementById("copyLink").onclick=()=>navigator.clipboard?.writeText(document.getElementById("studentLink").value);
+
+drawBoard();
+resetPieces();
+loadChallenge();
+</script>
+</body>
+</html>
